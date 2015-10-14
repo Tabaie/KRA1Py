@@ -1,3 +1,4 @@
+#AUTHOR: ARYA POURTABATABAIE
 from re import findall
 import random
 from math import log
@@ -102,27 +103,19 @@ class Record:
 f= open("cmc.data", "rt")
 
 fs= f.readline()
-data= list()
+datal= list()
 
 while not fs==None and not fs=="":
 
 	fl= findall(r'\d+', fs)	#Extract the numbers (Non-empty strings of digits)
 	
 	#Create a new record based on the input
-	data.append(Record(int(fl[0]), CatAttr(int(fl[1])), CatAttr(fl[2]), int(fl[3]), BoolVals[int(fl[4])], BoolVals[int(fl[5])], CatAttr(fl[6]), CatAttr(fl[7]), BoolVals[int(fl[8])], Contraception(fl[9]) ) )
+	datal.append(Record(int(fl[0]), CatAttr(int(fl[1])), CatAttr(fl[2]), int(fl[3]), BoolVals[int(fl[4])], BoolVals[int(fl[5])], CatAttr(fl[6]), CatAttr(fl[7]), BoolVals[int(fl[8])], Contraception(fl[9]) ) )
 	
 	fs=f.readline()
 				
 f.close()
 
-#CREATE test and training data sets
-k= 10
-random.seed()
-random.shuffle(data)
-test= np.array(data[:len(data)/k])
-train= np.array(data[len(data)/k :])
-
-data = np.array(data) #THIS SHOULD NOT BE REMOVED
 
 #COMPUTING ENTROPY OF A DATA SET
 def Entropy(data):
@@ -315,17 +308,21 @@ class Node:
 		vals= [ (r.numericals[dividingAttrI], 1 if r.tgt.val==tgtToIsolate else -1) for r in self.data] # (x,y) pairs
 		
 		xs= [val[0] for val in vals] #x values
+		ys= [val[1] for val in vals] #y values
+
+		xSum= sum(xs)
+		ySum= sum(ys)
 
 		xySum= sum([val[0]*val[1] for val in vals])
 		
 		if xySum==.0:
 			wInv=999999 #A very large number,just to avoid division by zero
 		else:
-			wInv= float(sum([x*x for x in xs])) / xySum
+			wInv= float(sum([x*x for x in xs]) - xSum*xSum) / (xySum - xSum* ySum)
 				
 		nInv= 1.0/len(self.data)
 		
-		v=(sum(xs)- wInv*sum([val[1] for val in vals]))*nInv
+		v=(xSum- wInv*ySum)*nInv
 		
 		if (min(xs) <= v and max(xs) >= v): #if it's in range return the threshold computed
 			return v
@@ -333,21 +330,155 @@ class Node:
 			xs.sort()
 			return xs[len(xs)/2]	#the median 
 	
-root= Node(0,train)
-root.CreateTree()
+#STATS
 
-correct=0
-for r in test:
-	prediction=root.Classify(r)
-#	print "Prediction", prediction, "Class", r.tgt.val
-	if (prediction== r.tgt.val):
-		correct= correct +1
-		
-print float(correct)/len(test)
+def Accuracy(confMat, dataSizeInv):
+	return dataSizeInv * sum([confMat[i][i] for i in xrange(len(Contraception.vals))])
 
-correct2=0
-for r in data:
-	if root.Classify(r)== r.tgt.val:
-		correct2+=1
+
+def Recall(confMat):
+	return [float( confMat[i][i])/ sum( [confMat[i][j] for j in xrange(len(Contraception.vals))] ) for i in xrange(len(Contraception.vals))]
+	
+def Precision(confMat):
+	return [float( confMat[i][i])/ sum( [confMat[j][i] for j in xrange(len(Contraception.vals))] ) for i in xrange(len(Contraception.vals))]
+
+def PrintMetricList(metric):
+	for m,name in zip(metric,Contraception.valNames):
+		print "\tfor", name, ":", m
+
+def mean(l):
+	return sum(l)/len(l)
+	
+def variance(l):
+	return (sum([x*x for x in l]) - mean(l) )/len(l)
+
+def MeanOfEach(lB):
+	return [ mean([lB[run][attr] for run in xrange(len(lB))] ) for attr in xrange(len(lB[0])) ]
+	return [mean(l) for l in lB]
+	
+def VarianceOfEach(lB):
+	return [ variance([lB[run][attr] for run in xrange(len(lB))] ) for attr in xrange(len(lB[0])) ]
+	return [variance(l) for l in lB]
+
+#CREATE test and training data sets
+k= 10
+random.seed()
+
+testSizeInv= 1.0/(len(datal)/k)
+dataSizeInv= 1.0/len(datal)
+
+#Statistics of the metrics
+taccuracy=[]
+tprecision=[]
+trecall=[]
+tf1=[]
+
+daccuracy=[]
+dprecision=[]
+drecall=[]
+df1=[]
+
+for run in xrange(k):	#Run k times
+
+	random.shuffle(datal)
+	test= np.array(datal[:len(datal)/k])
+	train= np.array(datal[len(datal)/k :])
+
+	data = np.array(datal) #THIS SHOULD NOT BE REMOVED	
+
+
+	root= Node(0,train)
+	root.CreateTree()
+
+	confusionMat= [ [0 for v in Contraception.vals] for w in Contraception.vals]	# i= actual, j= predicted over test data only
+
+	for r in test:
+		prediction=root.Classify(r)
+
+		confusionMat[r.tgt.val-1][prediction-1]+=1		
+				
+				
+	confusionWhole= [ [0 for v in Contraception.vals] for w in Contraception.vals]	# i= actual, j= predicted over all data
+	for r in data:
+		prediction=root.Classify(r)
+		confusionWhole[r.tgt.val-1][prediction-1]+=1		
 		
-print float(correct2)/len(data)
+	
+	accuracy=Accuracy(confusionMat, testSizeInv)
+	precision=Precision(confusionMat)
+	recall=Recall(confusionMat)
+	f1= [ (2*p*r)/(p+r) for p,r in zip(precision, recall)]
+	
+	taccuracy.append(accuracy)
+	tprecision.append(precision)
+	trecall.append(recall)
+	tf1.append(f1)
+	
+	print "Run",run,"metrics:"
+	print "TEST DATA"
+	print "Accuracy=",accuracy
+	print "Precision:"
+	PrintMetricList(precision)
+	print "Recall:"
+	PrintMetricList(recall)
+	print "F1:"
+	PrintMetricList(f1)
+
+	accuracy=Accuracy(confusionWhole, dataSizeInv)
+	precision=Precision(confusionWhole)
+	recall=Recall(confusionWhole)
+	f1= [ (2*p*r)/(p+r) for p,r in zip(precision, recall)]
+	
+	daccuracy.append(accuracy)
+	dprecision.append(precision)
+	drecall.append(recall)
+	df1.append(f1)
+	
+	print "Run",run,"metrics:"
+	print "WHOLE DATA"
+	print "Accuracy=",accuracy
+	print "Precision:"
+	PrintMetricList(precision)
+	print "Recall:"
+	PrintMetricList(recall)
+	print "F1:"
+	PrintMetricList(f1)
+
+
+print "Final Statistics over test data:"
+print "Accuracy: mean=", mean(taccuracy), "variance=", variance(taccuracy)
+
+print "Precision mean:"
+PrintMetricList(MeanOfEach(tprecision))
+print "Precision variance:"
+PrintMetricList(VarianceOfEach(tprecision))
+
+print "Recall mean:"
+PrintMetricList(MeanOfEach(trecall))
+print "Recall variance:"
+PrintMetricList(VarianceOfEach(trecall))
+
+print "F1 mean:"
+PrintMetricList(MeanOfEach(tf1))
+print "F1 variance:"
+PrintMetricList(VarianceOfEach(tf1))
+
+
+print "Final Statistics over whole data:"
+print "Accuracy: mean=", mean(daccuracy), "variance=", variance(daccuracy)
+
+print "Precision mean:"
+PrintMetricList(MeanOfEach(dprecision))
+print "Precision variance:"
+PrintMetricList(VarianceOfEach(dprecision))
+
+print "Recall mean:"
+PrintMetricList(MeanOfEach(drecall))
+print "Recall variance:"
+PrintMetricList(VarianceOfEach(drecall))
+
+print "F1 mean:"
+PrintMetricList(MeanOfEach(df1))
+print "F1 variance:"
+PrintMetricList(VarianceOfEach(df1))
+
